@@ -12,7 +12,7 @@ template<typename, typename = void>
 struct is_specialized : std::false_type {};
 
 template<typename Ty>
-struct is_specialized < Ty, std::void_t<decltype(Ty{}) >> : std::true_type {};
+struct is_specialized<Ty, std::void_t<decltype(Ty{})>> : std::true_type {};
 
 template<typename Ty>
 inline constexpr bool is_specialized_v = is_specialized<Ty>::value;
@@ -39,25 +39,49 @@ inline constexpr void for_sequence(std::integer_sequence<Ty, Vals...>, Func&& fn
 	(static_cast<void>(fn(std::integral_constant<Ty, Vals>{})), ...);
 }
 
-// serialize function
+// serialize (in place) function
 template<typename Ty>
-inline nlohmann::json to_json(const Ty& obj_data)
+inline void to_json(const Ty& obj_data, nlohmann::json& json_data)
 {
-	nlohmann::json json_data{};
-
 	constexpr auto prop_size = std::tuple_size_v<decltype(object_properties<Ty>::value)>;
 	for_sequence(std::make_index_sequence<prop_size>{}, [&](auto i)
 		{
 			constexpr auto prop = std::get<i>(object_properties<Ty>::value);
 			using prop_type = decltype(prop)::type;
-			auto& value = json_data[prop.name.data()];
+			const auto& obj_member = obj_data.*(prop.member);
+			auto& json_value = json_data[prop.name.data()];
 			if constexpr (is_specialized_v<object_properties<prop_type>>)
-				value = to_json(obj_data.*(prop.member)); // parses sub-properties
+				to_json(obj_member, json_value); // recursively parses sub-properties
 			else
-				value = obj_data.*(prop.member);
+				json_value = obj_member;
 		});
+}
 
+// serialize function
+template<typename Ty>
+inline nlohmann::json to_json(const Ty& obj_data)
+{
+	nlohmann::json json_data{};
+	to_json(obj_data, json_data);
 	return json_data;
+}
+
+// deserialize (in place) function
+template<typename Ty>
+inline void from_json(const nlohmann::json& json_data, Ty& obj_data)
+{
+	constexpr auto prop_size = std::tuple_size_v<decltype(object_properties<Ty>::value)>;
+	for_sequence(std::make_index_sequence<prop_size>{}, [&](auto i)
+		{
+			constexpr auto prop = std::get<i>(object_properties<Ty>::value);
+			using prop_type = decltype(prop)::type;
+			auto& obj_member = obj_data.*(prop.member);
+			const auto& json_value = json_data[prop.name.data()];
+			if constexpr (is_specialized_v<object_properties<prop_type>>)
+				from_json<prop_type>(json_value, obj_member); // recursively parses sub-properties
+			else
+				obj_member = json_value.get<prop_type>();
+		});
 }
 
 // deserialize function
@@ -65,18 +89,6 @@ template<typename Ty, typename std::enable_if_t<std::is_default_constructible_v<
 inline Ty from_json(const nlohmann::json& json_data)
 {
 	Ty obj_data{};
-
-	constexpr auto prop_size = std::tuple_size_v<decltype(object_properties<Ty>::value)>;
-	for_sequence(std::make_index_sequence<prop_size>{}, [&](auto i)
-		{
-			constexpr auto prop = std::get<i>(object_properties<Ty>::value);
-			using prop_type = decltype(prop)::type;
-			const auto& value = json_data[prop.name.data()];
-			if constexpr (is_specialized_v<object_properties<prop_type>>)
-				obj_data.*(prop.member) = from_json<prop_type>(value); // parses sub-properties
-			else
-				obj_data.*(prop.member) = value.get<prop_type>();
-		});
-
+	from_json(json_data, obj_data);
 	return obj_data;
 }
