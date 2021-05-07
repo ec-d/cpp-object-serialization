@@ -60,11 +60,10 @@ int main()
 {
 	my_object obj{};
 
-	const auto j = to_json(obj);
-	std::cout << j.dump(4) << '\n';
+	const auto j = serialize_to_json(obj);
+	std::cout << j.dump(4) << "\n\n";
 
-	const auto obj2 = from_json<my_object>(j);
-	std::cout << '\n';
+	const auto obj2 = deserialize_from_json<my_object>(j);
 	std::cout << "Objects are equal: " << std::boolalpha << (obj == obj2) << '\n';
 
 	return 0;
